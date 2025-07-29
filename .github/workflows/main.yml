@@ -33,6 +33,7 @@ jobs:
       with:
         node-version: '18'
         cache: 'npm'
+        timeout-minutes: 10 
     
     - name: Install dependencies
       run: npm ci  # 使用ci而不是install
