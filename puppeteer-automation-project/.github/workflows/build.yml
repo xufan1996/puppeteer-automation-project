@@ -1,0 +1,101 @@
+name: Build Cross-Platform
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: node18-linux-x64
+            output: puppeteer-automation-linux
+            chrome-platform: linux
+          - os: windows-latest
+            target: node18-win-x64
+            output: puppeteer-automation-win.exe
+            chrome-platform: win64
+          - os: macos-latest
+            target: node18-macos-x64
+            output: puppeteer-automation-macos
+            chrome-platform: mac
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install Chrome for testing
+      run: |
+        npx @puppeteer/browsers install chrome@116.0.5793.0 --platform=${{ matrix.chrome-platform }}
+    
+    - name: Create dist directory
+      run: mkdir -p dist
+    
+    - name: Build executable
+      run: |
+        npx pkg package.json --targets ${{ matrix.target }} --output dist/${{ matrix.output }}
+    
+    - name: List dist contents (debug)
+      run: ls -la dist/
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.output }}
+        path: dist/${{ matrix.output }}
+        retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+    
+    - name: Display structure of downloaded files
+      run: ls -R ./artifacts
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Release v${{ github.run_number }}
+        draft: false
+        prerelease: false
+    
+    - name: Upload Release Assets
+      run: |
+        for dir in ./artifacts/*/; do
+          filename=$(basename "$dir")
+          filepath="$dir$filename"
+          if [ -f "$filepath" ]; then
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$filepath" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}/assets?name=$filename"
+          fi
+        done
