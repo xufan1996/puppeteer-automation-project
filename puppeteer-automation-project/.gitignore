@@ -6,3 +6,4 @@ output/
 chrome/
 *.log
 .DS_Store
+ECommerceService/
